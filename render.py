@@ -1,10 +1,11 @@
 """Pico2d drawing code for the prototype."""
 
-from math import cos, sin
+from math import ceil, cos, floor, pi, sin, tan
 
 import pico2d as pico
 
 from world import PLAYER_RADIUS, TARGET_RADIUS, World
+from raycast import cast_wall
 
 
 WIDTH, HEIGHT = 960, 576
@@ -13,33 +14,99 @@ FLOOR = (51, 47, 40)
 WALL = (117, 109, 97)
 PLAYER = (94, 207, 185)
 TARGET = (224, 116, 86)
+CEILING = (34, 36, 39)
+COLUMN_COUNT = 160
+FOV = pi / 3
+NEAR = 0.01
 
 
 def fill_rect(x1, y1, x2, y2, color):
     pico.draw_rectangle(x1, y1, x2, y2, *color, filled=True)
 
 
-def draw_top_down(world: World) -> None:
-    fill_rect(0, 0, WIDTH - 1, HEIGHT - 1, BACKGROUND)
-    scale = min((WIDTH - 80) // world.width, (HEIGHT - 80) // world.height)
-    left = (WIDTH - world.width * scale) // 2
-    bottom = (HEIGHT - world.height * scale) // 2
+class TopDownRenderer:
+    def draw(self, world: World) -> None:
+        fill_rect(0, 0, WIDTH - 1, HEIGHT - 1, BACKGROUND)
+        scale = min((WIDTH - 80) // world.width, (HEIGHT - 80) // world.height)
+        left = (WIDTH - world.width * scale) // 2
+        bottom = (HEIGHT - world.height * scale) // 2
 
-    for y, row in enumerate(world.tiles):
-        for x, tile in enumerate(row):
-            sx, sy = left + x * scale, bottom + y * scale
-            color = WALL if tile == "#" else FLOOR
-            fill_rect(sx, sy, sx + scale - 2, sy + scale - 2, color)
+        for y, row in enumerate(world.tiles):
+            for x, tile in enumerate(row):
+                sx, sy = left + x * scale, bottom + y * scale
+                color = WALL if tile == "#" else FLOOR
+                fill_rect(sx, sy, sx + scale - 2, sy + scale - 2, color)
 
-    for target in world.targets:
-        x, y = left + target.x * scale, bottom + target.y * scale
-        size = TARGET_RADIUS * scale
-        fill_rect(x - size, y - size, x + size, y + size, TARGET)
+        for target in world.targets:
+            x, y = left + target.x * scale, bottom + target.y * scale
+            size = TARGET_RADIUS * scale
+            fill_rect(x - size, y - size, x + size, y + size, TARGET)
 
-    player = world.player
-    x, y = left + player.x * scale, bottom + player.y * scale
-    size = PLAYER_RADIUS * scale
-    fill_rect(x - size, y - size, x + size, y + size, PLAYER)
-    aim_length = scale * 0.65
-    pico.draw_line(x, y, x + cos(player.angle) * aim_length,
-                   y + sin(player.angle) * aim_length, *PLAYER)
+        player = world.player
+        x, y = left + player.x * scale, bottom + player.y * scale
+        size = PLAYER_RADIUS * scale
+        fill_rect(x - size, y - size, x + size, y + size, PLAYER)
+        aim_length = scale * 0.65
+        pico.draw_line(x, y, x + cos(player.angle) * aim_length,
+                       y + sin(player.angle) * aim_length, *PLAYER)
+
+
+class FirstPersonRenderer:
+    def draw(self, world: World) -> None:
+        horizon = HEIGHT // 2
+        fill_rect(0, 0, WIDTH - 1, horizon - 1, FLOOR)
+        fill_rect(0, horizon, WIDTH - 1, HEIGHT - 1, CEILING)
+
+        player = world.player
+        facing_x, facing_y = cos(player.angle), sin(player.angle)
+        plane = tan(FOV / 2)
+        focal_length = WIDTH / (2 * plane)
+        depths = []
+        for column in range(COLUMN_COUNT):
+            offset = (2 * (column + 0.5) / COLUMN_COUNT - 1) * plane
+            ray_x = facing_x + facing_y * offset
+            ray_y = facing_y - facing_x * offset
+            # The ray is unnormalized, so the hit parameter is forward depth.
+            hit = cast_wall(world, player.x, player.y, ray_x, ray_y)
+            if hit is None:
+                depths.append(float("inf"))
+                continue
+            depths.append(hit.distance)
+            half_height = focal_length / (2 * max(hit.distance, NEAR))
+            brightness = max(0.26, 1.0 / (1 + hit.distance * 0.15))
+            if not hit.vertical:
+                brightness *= 0.76
+            color = tuple(int(channel * brightness) for channel in WALL)
+            left = column * WIDTH // COLUMN_COUNT
+            right = (column + 1) * WIDTH // COLUMN_COUNT - 1
+            fill_rect(left, max(0, ceil(horizon - half_height)),
+                      right, min(HEIGHT - 1, floor(horizon + half_height)), color)
+
+        self._draw_targets(world, facing_x, facing_y, focal_length, depths)
+
+    def _draw_targets(self, world, facing_x, facing_y, focal_length, depths):
+        player = world.player
+        projected = []
+        for target in world.targets:
+            dx, dy = target.x - player.x, target.y - player.y
+            depth = dx * facing_x + dy * facing_y
+            if depth > NEAR:
+                side = dx * facing_y - dy * facing_x
+                projected.append((depth, side))
+
+        column_width = WIDTH // COLUMN_COUNT
+        for depth, side in sorted(projected, reverse=True):
+            center = WIDTH / 2 + focal_length * side / depth
+            half_width = focal_length * TARGET_RADIUS / depth
+            left = max(0, ceil(center - half_width))
+            right = min(WIDTH - 1, floor(center + half_width))
+            if left > right:
+                continue
+
+            bottom = max(0, ceil(HEIGHT / 2 - 0.5 * focal_length / depth))
+            top = min(HEIGHT - 1, floor(HEIGHT / 2 + 0.24 * focal_length / depth))
+            for column in range(left // column_width, right // column_width + 1):
+                if depth < depths[column]:
+                    strip_left = max(left, column * column_width)
+                    strip_right = min(right, (column + 1) * column_width - 1)
+                    fill_rect(strip_left, bottom, strip_right, top, TARGET)
