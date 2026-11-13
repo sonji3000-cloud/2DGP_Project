@@ -1,6 +1,7 @@
 """Pico2d drawing code for the prototype."""
 
-from math import ceil, cos, floor, pi, sin, tan
+from math import ceil, cos, exp, floor, pi, sin, tan, tau
+from pathlib import Path
 
 import pico2d as pico
 
@@ -18,11 +19,21 @@ TARGET_HIT = (161, 114, 78)
 SHOT = (255, 217, 127)
 CEILING = (34, 36, 39)
 SIGHT = (232, 225, 209)
-PISTOL_FRAME = (39, 42, 46)
-PISTOL_SLIDE = (82, 87, 93)
 COLUMN_COUNT = 160
 FOV = pi / 3
 NEAR = 0.01
+PISTOL_SHEET_PATH = Path(__file__).resolve().parent / "assets" / "luger_p08_first_person.png"
+PISTOL_CELL_WIDTH = 160
+PISTOL_CELL_HEIGHT = 128
+PISTOL_SCALE = 2
+# Front and rear sight positions in the idle cell, measured from its top left.
+PISTOL_FRONT_SIGHT = (52, 45)
+PISTOL_REAR_SIGHT = (68, 64)
+PISTOL_FIRE_DURATIONS = (0.040, 0.050, 0.045, 0.045)
+PISTOL_BOB_CYCLE_DISTANCE = 2.4  # World units per sway cycle.
+PISTOL_BOB_HORIZONTAL = 3  # Pixels.
+PISTOL_BOB_VERTICAL = 4  # Pixels.
+PISTOL_BOB_RESPONSE = 14.0  # Per second.
 
 
 def fill_rect(x1, y1, x2, y2, color):
@@ -67,6 +78,17 @@ class TopDownRenderer:
 
 
 class FirstPersonRenderer:
+    def __init__(self) -> None:
+        self.pistol_sheet = pico.load_image(str(PISTOL_SHEET_PATH))
+        self._walk_phase = 0.0
+        self._walk_amount = 0.0
+
+    def update_walk(self, distance: float, dt: float) -> None:
+        self._walk_phase = (self._walk_phase + tau * distance / PISTOL_BOB_CYCLE_DISTANCE) % tau
+        target = 1.0 if distance > 1e-6 else 0.0
+        blend = 1 - exp(-PISTOL_BOB_RESPONSE * dt)
+        self._walk_amount += (target - self._walk_amount) * blend
+
     def draw(self, world: World) -> None:
         horizon = HEIGHT // 2
         fill_rect(0, 0, WIDTH - 1, horizon - 1, FLOOR)
@@ -98,7 +120,7 @@ class FirstPersonRenderer:
                       right, min(HEIGHT - 1, floor(horizon + half_height)), color)
 
         self._draw_targets(world, facing_x, facing_y, focal_length, depths)
-        self._draw_pistol(player.muzzle_flash > 0)
+        self._draw_pistol(player.time_since_shot)
 
     def _draw_targets(self, world, facing_x, facing_y, focal_length, depths):
         player = world.player
@@ -128,20 +150,36 @@ class FirstPersonRenderer:
                     strip_right = min(right, (column + 1) * column_width - 1)
                     fill_rect(strip_left, bottom, strip_right, top, color)
 
-    @staticmethod
-    def _draw_pistol(firing: bool) -> None:
+    def _draw_pistol(self, time_since_shot: float) -> None:
         center_x, center_y = WIDTH // 2, HEIGHT // 2
-        sight_color = SHOT if firing else SIGHT
+        frame = 0
+        for index, duration in enumerate(PISTOL_FIRE_DURATIONS, start=1):
+            if time_since_shot < duration:
+                frame = index
+                break
+            time_since_shot -= duration
+
+        # The sheet is ordered from the top left, while Pico2d clips from the bottom.
+        row, column = divmod(frame, self.pistol_sheet.w // PISTOL_CELL_WIDTH)
+        left = column * PISTOL_CELL_WIDTH
+        bottom = self.pistol_sheet.h - (row + 1) * PISTOL_CELL_HEIGHT
+        draw_width = PISTOL_CELL_WIDTH * PISTOL_SCALE
+        draw_height = PISTOL_CELL_HEIGHT * PISTOL_SCALE
+        front_x, front_y = PISTOL_FRONT_SIGHT
+        rear_x, rear_y = PISTOL_REAR_SIGHT
+        crosshair_row = PISTOL_CELL_HEIGHT - center_y / PISTOL_SCALE
+        # Extend the sight line to the crosshair height before placing the sprite.
+        sight_x = front_x + (crosshair_row - front_y) * (rear_x - front_x) / (rear_y - front_y)
+        swing = sin(self._walk_phase)
+        bob_x = PISTOL_BOB_HORIZONTAL * self._walk_amount * swing
+        bob_y = -PISTOL_BOB_VERTICAL * self._walk_amount * swing ** 2
+        draw_x = round(center_x + draw_width / 2 - sight_x * PISTOL_SCALE + bob_x)
+        draw_y = round(draw_height / 2 + bob_y)
+        self.pistol_sheet.clip_draw(left, bottom, PISTOL_CELL_WIDTH, PISTOL_CELL_HEIGHT,
+                                    draw_x, draw_y, draw_width, draw_height)
+
+        sight_color = SHOT if frame == 1 else SIGHT
         pico.draw_line(center_x - 9, center_y, center_x - 3, center_y, *sight_color)
         pico.draw_line(center_x + 3, center_y, center_x + 9, center_y, *sight_color)
         pico.draw_line(center_x, center_y - 9, center_x, center_y - 3, *sight_color)
         pico.draw_line(center_x, center_y + 3, center_x, center_y + 9, *sight_color)
-
-        # A placeholder pistol made from canvas primitives.
-        recoil = 8 if firing else 0
-        slide_top = 108 + recoil
-        fill_rect(center_x - 34, 0, center_x + 34, 74 + recoil, PISTOL_FRAME)
-        fill_rect(center_x - 22, 68 + recoil, center_x + 22, slide_top, PISTOL_SLIDE)
-        fill_rect(center_x - 4, slide_top, center_x + 4, slide_top + 8, PISTOL_FRAME)
-        if firing:
-            fill_rect(center_x - 13, slide_top + 12, center_x + 13, slide_top + 25, SHOT)

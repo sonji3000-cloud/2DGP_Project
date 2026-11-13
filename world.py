@@ -1,7 +1,7 @@
 """The map and gameplay state shared by both views."""
 
 from dataclasses import dataclass, field
-from math import ceil, floor
+from math import ceil, floor, inf
 
 
 # The map is written from top to bottom. World y increases upwards.
@@ -26,7 +26,7 @@ class Player:
     x: float = 2.5
     y: float = 4.5
     angle: float = 0.0
-    muzzle_flash: float = 0.0
+    time_since_shot: float = inf
 
 
 @dataclass

@@ -10,7 +10,6 @@ class Pistol:
     FIRE_INTERVAL = 0.23
     BULLET_SPEED = 16.0
     BULLET_RANGE = 18.0
-    MUZZLE_FLASH_TIME = 0.09
     TARGET_FLASH_TIME = 0.22
 
     def __init__(self) -> None:
@@ -19,7 +18,7 @@ class Pistol:
     def update(self, world: World, fire_pressed: bool, dt: float) -> None:
         player = world.player
         self.cooldown = max(0.0, self.cooldown - dt)
-        player.muzzle_flash = max(0.0, player.muzzle_flash - dt)
+        player.time_since_shot += dt
         for target in world.targets:
             target.hit_flash = max(0.0, target.hit_flash - dt)
 
@@ -31,7 +30,7 @@ class Pistol:
             world.bullets.append(Bullet(player.x, player.y, cos(player.angle),
                                         sin(player.angle), self.BULLET_RANGE))
             self.cooldown = self.FIRE_INTERVAL
-            player.muzzle_flash = self.MUZZLE_FLASH_TIME
+            player.time_since_shot = 0.0
 
     def _advance(self, world: World, bullet: Bullet, dt: float) -> bool:
         distance = min(self.BULLET_SPEED * dt, bullet.range_left)
