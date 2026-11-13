@@ -17,6 +17,9 @@ TARGET = (224, 116, 86)
 TARGET_HIT = (161, 114, 78)
 SHOT = (255, 217, 127)
 CEILING = (34, 36, 39)
+SIGHT = (232, 225, 209)
+PISTOL_FRAME = (39, 42, 46)
+PISTOL_SLIDE = (82, 87, 93)
 COLUMN_COUNT = 160
 FOV = pi / 3
 NEAR = 0.01
@@ -95,6 +98,7 @@ class FirstPersonRenderer:
                       right, min(HEIGHT - 1, floor(horizon + half_height)), color)
 
         self._draw_targets(world, facing_x, facing_y, focal_length, depths)
+        self._draw_pistol(player.muzzle_flash > 0)
 
     def _draw_targets(self, world, facing_x, facing_y, focal_length, depths):
         player = world.player
@@ -123,3 +127,21 @@ class FirstPersonRenderer:
                     strip_left = max(left, column * column_width)
                     strip_right = min(right, (column + 1) * column_width - 1)
                     fill_rect(strip_left, bottom, strip_right, top, color)
+
+    @staticmethod
+    def _draw_pistol(firing: bool) -> None:
+        center_x, center_y = WIDTH // 2, HEIGHT // 2
+        sight_color = SHOT if firing else SIGHT
+        pico.draw_line(center_x - 9, center_y, center_x - 3, center_y, *sight_color)
+        pico.draw_line(center_x + 3, center_y, center_x + 9, center_y, *sight_color)
+        pico.draw_line(center_x, center_y - 9, center_x, center_y - 3, *sight_color)
+        pico.draw_line(center_x, center_y + 3, center_x, center_y + 9, *sight_color)
+
+        # A placeholder pistol made from canvas primitives.
+        recoil = 8 if firing else 0
+        slide_top = 108 + recoil
+        fill_rect(center_x - 34, 0, center_x + 34, 74 + recoil, PISTOL_FRAME)
+        fill_rect(center_x - 22, 68 + recoil, center_x + 22, slide_top, PISTOL_SLIDE)
+        fill_rect(center_x - 4, slide_top, center_x + 4, slide_top + 8, PISTOL_FRAME)
+        if firing:
+            fill_rect(center_x - 13, slide_top + 12, center_x + 13, slide_top + 25, SHOT)
