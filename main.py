@@ -5,6 +5,7 @@ from time import perf_counter
 
 import pico2d as pico
 
+from combat import Pistol
 from render import HEIGHT, WIDTH, FirstPersonRenderer, TopDownRenderer
 from world import World
 
@@ -33,6 +34,7 @@ def read_input(held: set[int]) -> tuple[bool, set[int]]:
 class Game:
     def __init__(self) -> None:
         self.world = World()
+        self.pistol = Pistol()
         self.held: set[int] = set()
         self.first_person = False
         self.top_down_renderer = TopDownRenderer()
@@ -72,6 +74,7 @@ class Game:
                 if pico.SDLK_TAB in pressed:
                     self.first_person = not self.first_person
                 self.update_player(dt)
+                self.pistol.update(self.world, pico.SDLK_SPACE in pressed, dt)
 
                 renderer = self.first_person_renderer if self.first_person else self.top_down_renderer
                 pico.clear_canvas()

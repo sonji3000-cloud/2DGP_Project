@@ -4,7 +4,7 @@ from math import ceil, cos, floor, pi, sin, tan
 
 import pico2d as pico
 
-from world import PLAYER_RADIUS, TARGET_RADIUS, World
+from world import PLAYER_RADIUS, TARGET_RADIUS, Target, World
 from raycast import cast_wall
 
 
@@ -14,6 +14,8 @@ FLOOR = (51, 47, 40)
 WALL = (117, 109, 97)
 PLAYER = (94, 207, 185)
 TARGET = (224, 116, 86)
+TARGET_HIT = (161, 114, 78)
+SHOT = (255, 217, 127)
 CEILING = (34, 36, 39)
 COLUMN_COUNT = 160
 FOV = pi / 3
@@ -22,6 +24,12 @@ NEAR = 0.01
 
 def fill_rect(x1, y1, x2, y2, color):
     pico.draw_rectangle(x1, y1, x2, y2, *color, filled=True)
+
+
+def target_color(target: Target) -> tuple[int, int, int]:
+    if target.hit_flash > 0:
+        return SHOT
+    return TARGET_HIT if target.hits else TARGET
 
 
 class TopDownRenderer:
@@ -40,7 +48,11 @@ class TopDownRenderer:
         for target in world.targets:
             x, y = left + target.x * scale, bottom + target.y * scale
             size = TARGET_RADIUS * scale
-            fill_rect(x - size, y - size, x + size, y + size, TARGET)
+            fill_rect(x - size, y - size, x + size, y + size, target_color(target))
+
+        for bullet in world.bullets:
+            x, y = left + bullet.x * scale, bottom + bullet.y * scale
+            fill_rect(x - 2, y - 2, x + 2, y + 2, SHOT)
 
         player = world.player
         x, y = left + player.x * scale, bottom + player.y * scale
@@ -92,10 +104,10 @@ class FirstPersonRenderer:
             depth = dx * facing_x + dy * facing_y
             if depth > NEAR:
                 side = dx * facing_y - dy * facing_x
-                projected.append((depth, side))
+                projected.append((depth, side, target))
 
         column_width = WIDTH // COLUMN_COUNT
-        for depth, side in sorted(projected, reverse=True):
+        for depth, side, target in sorted(projected, key=lambda item: item[0], reverse=True):
             center = WIDTH / 2 + focal_length * side / depth
             half_width = focal_length * TARGET_RADIUS / depth
             left = max(0, ceil(center - half_width))
@@ -105,8 +117,9 @@ class FirstPersonRenderer:
 
             bottom = max(0, ceil(HEIGHT / 2 - 0.5 * focal_length / depth))
             top = min(HEIGHT - 1, floor(HEIGHT / 2 + 0.24 * focal_length / depth))
+            color = target_color(target)
             for column in range(left // column_width, right // column_width + 1):
                 if depth < depths[column]:
                     strip_left = max(left, column * column_width)
                     strip_right = min(right, (column + 1) * column_width - 1)
-                    fill_rect(strip_left, bottom, strip_right, top, TARGET)
+                    fill_rect(strip_left, bottom, strip_right, top, color)

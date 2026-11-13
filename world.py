@@ -26,12 +26,24 @@ class Player:
     x: float = 2.5
     y: float = 4.5
     angle: float = 0.0
+    muzzle_flash: float = 0.0
 
 
 @dataclass
 class Target:
     x: float
     y: float
+    hits: int = 0
+    hit_flash: float = 0.0
+
+
+@dataclass
+class Bullet:
+    x: float
+    y: float
+    dx: float
+    dy: float
+    range_left: float
 
 
 @dataclass
@@ -42,6 +54,7 @@ class World:
         Target(6.5, 4.5),
         Target(8.5, 2.5),
     ])
+    bullets: list[Bullet] = field(default_factory=list)
 
     @property
     def width(self) -> int:
