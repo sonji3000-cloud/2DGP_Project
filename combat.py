@@ -1,24 +1,48 @@
 """Update pistol fire and projectile impacts in world coordinates."""
 
-from math import cos, sin, sqrt
+from math import cos, inf, sin, sqrt
 
 from raycast import cast_wall
 from world import TARGET_RADIUS, Bullet, Target, World
 
 
 class Pistol:
+    MAGAZINE_SIZE = 8
+    STARTING_RESERVE = 24
     FIRE_INTERVAL = 0.23
+    FIRE_FRAME_ENDS = (0.040, 0.090, 0.135, 0.180)
+    RELOAD_FRAME_ENDS = (0.090, 0.190, 0.300, 0.440, 0.570, 0.620, 0.670, 0.760, 0.880)
     BULLET_SPEED = 16.0
     BULLET_RANGE = 18.0
     TARGET_FLASH_TIME = 0.22
 
     def __init__(self) -> None:
+        self.rounds = self.MAGAZINE_SIZE
+        self.reserve = self.STARTING_RESERVE
         self.cooldown = 0.0
+        self._time_since_shot = inf
+        self._reload_elapsed: float | None = None
 
-    def update(self, world: World, fire_pressed: bool, dt: float) -> None:
-        player = world.player
+    @property
+    def reloading(self) -> bool:
+        return self._reload_elapsed is not None
+
+    @property
+    def sprite_frame(self) -> int:
+        # Both pistol sheets use the same slots: idle 0, fire 1–4, reload 5–13.
+        if self._reload_elapsed is not None:
+            for frame, end in enumerate(self.RELOAD_FRAME_ENDS, start=5):
+                if self._reload_elapsed < end:
+                    return frame
+        else:
+            for frame, end in enumerate(self.FIRE_FRAME_ENDS, start=1):
+                if self._time_since_shot < end:
+                    return frame
+        return 0
+
+    def update(self, world: World, fire_pressed: bool, dt: float, *, reload_pressed: bool = False) -> None:
         self.cooldown = max(0.0, self.cooldown - dt)
-        player.time_since_shot += dt
+        self._time_since_shot += dt
         for target in world.targets:
             target.hit_flash = max(0.0, target.hit_flash - dt)
 
@@ -26,11 +50,26 @@ class Pistol:
             bullet for bullet in world.bullets if self._advance(world, bullet, dt)
         ]
 
-        if fire_pressed and self.cooldown == 0.0:
+        if self._reload_elapsed is not None:
+            self._reload_elapsed += dt
+            if self._reload_elapsed < self.RELOAD_FRAME_ENDS[-1]:
+                return
+            transferred = min(self.MAGAZINE_SIZE - self.rounds, self.reserve)
+            self.rounds += transferred
+            self.reserve -= transferred
+            self._reload_elapsed = None
+
+        if reload_pressed and self.rounds < self.MAGAZINE_SIZE and self.reserve > 0:
+            self._reload_elapsed = 0.0
+            return
+
+        if fire_pressed and self.cooldown == 0.0 and self.rounds > 0:
+            player = world.player
             world.bullets.append(Bullet(player.x, player.y, cos(player.angle),
                                         sin(player.angle), self.BULLET_RANGE))
+            self.rounds -= 1
             self.cooldown = self.FIRE_INTERVAL
-            player.time_since_shot = 0.0
+            self._time_since_shot = 0.0
 
     def _advance(self, world: World, bullet: Bullet, dt: float) -> bool:
         distance = min(self.BULLET_SPEED * dt, bullet.range_left)

@@ -81,13 +81,15 @@ class Game:
                 dx, dy = player.x - previous_x, player.y - previous_y
                 top_down_renderer.update_walk(dx, dy)
                 first_person_renderer.update_walk(hypot(dx, dy) if self.first_person else 0.0, dt)
-                self.pistol.update(self.world, pico.SDLK_SPACE in pressed, dt)
+                self.pistol.update(self.world, pico.SDLK_SPACE in pressed, dt,
+                                   reload_pressed=pico.SDLK_r in pressed)
 
                 pico.clear_canvas()
+                frame = self.pistol.sprite_frame
                 if self.first_person:
-                    first_person_renderer.draw(self.world)
+                    first_person_renderer.draw(self.world, frame)
                 else:
-                    top_down_renderer.draw(self.world)
+                    top_down_renderer.draw(self.world, frame)
                 pico.update_canvas()
         finally:
             # Release sprite textures before Pico2d destroys its renderer.
