@@ -4,7 +4,8 @@ from math import atan2, ceil, cos, exp, floor, hypot, pi, sin, tan, tau
 from pathlib import Path
 
 import pico2d as pico
-from sdl2 import SDL_SetTextureColorMod
+import sdl2
+from pico2d import pico2d as pico_canvas
 
 from combat import Pistol
 from floor_render import FloorRenderer
@@ -81,6 +82,8 @@ class TopDownRenderer:
         self._upper_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_upper.png"))
         self._walk_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_walk.png"))
         self._target_sheet = pico.load_image(str(ASSET_DIR / f"{TARGET_SPRITE}_top_down.png"))
+        self._map_tiles: tuple[str, ...] | None = None
+        self._map_texture: pico.Image | None = None
         self._walk_distance = 0.0
         self._walk_angle = 0.0
         self._walking = False
@@ -95,32 +98,61 @@ class TopDownRenderer:
     def draw(self, world: World, pistol_frame: int) -> None:
         fill_rect(0, 0, WIDTH - 1, HEIGHT - 1, BACKGROUND)
         scale = min((WIDTH - 80) // world.width, (HEIGHT - 80) // world.height)
-        left = (WIDTH - world.width * scale) // 2
-        bottom = (HEIGHT - world.height * scale) // 2
+        player = world.player
+        center_x, center_y = WIDTH // 2, HEIGHT // 2
+        rotation = pi / 2 - player.angle
+        cos_rotation, sin_rotation = cos(rotation), sin(rotation)
 
-        for y, row in enumerate(world.tiles):
-            for x, tile in enumerate(row):
-                sx, sy = left + x * scale, bottom + y * scale
-                texture = self._wall_texture if tile == "#" else self._floor_texture
-                texture.draw_to_origin(sx, sy, scale, scale)
+        def project(x: float, y: float) -> tuple[float, float]:
+            dx, dy = x - player.x, y - player.y
+            return (center_x + (dx * cos_rotation - dy * sin_rotation) * scale,
+                    center_y + (dx * sin_rotation + dy * cos_rotation) * scale)
+
+        if self._map_texture is None or self._map_tiles != world.tiles:
+            self._cache_map(world, scale)
+        map_x, map_y = project(world.width / 2, world.height / 2)
+        self._map_texture.rotate_draw(rotation, map_x, map_y)
 
         for target in world.targets:
-            x, y = left + target.x * scale, bottom + target.y * scale
+            x, y = project(target.x, target.y)
             frame = TARGET_HIT_FRAME if target.hit_flash > 0 else 0
-            self._draw_frame(self._target_sheet, frame, x, y, pi, scale)
+            self._draw_frame(self._target_sheet, frame, x, y, pi + rotation, scale)
 
         for bullet in world.bullets:
-            x, y = left + bullet.x * scale, bottom + bullet.y * scale
+            x, y = project(bullet.x, bullet.y)
             fill_rect(x - 2, y - 2, x + 2, y + 2, SHOT)
 
-        player = world.player
-        x, y = left + player.x * scale, bottom + player.y * scale
         if self._walking:
             walk_frame = int(TOP_DOWN_WALK_FRAMES * self._walk_distance / TOP_DOWN_WALK_CYCLE_DISTANCE)
-            self._draw_frame(self._walk_sheet, walk_frame, x, y, self._walk_angle, scale)
-            self._draw_frame(self._upper_sheet, pistol_frame, x, y, player.angle, scale)
+            self._draw_frame(self._walk_sheet, walk_frame, center_x, center_y,
+                             self._walk_angle + rotation, scale)
+            player_sheet = self._upper_sheet
         else:
-            self._draw_frame(self._player_sheet, pistol_frame, x, y, player.angle, scale)
+            player_sheet = self._player_sheet
+        self._draw_frame(player_sheet, pistol_frame, center_x, center_y, pi / 2, scale)
+
+    def _cache_map(self, world: World, scale: int) -> None:
+        # Rotate the tiles as one image to avoid gaps along separately rotated edges.
+        renderer = pico_canvas.renderer
+        texture = sdl2.SDL_CreateTexture(renderer, sdl2.SDL_PIXELFORMAT_RGBA32,
+                                         sdl2.SDL_TEXTUREACCESS_TARGET,
+                                         world.width * scale, world.height * scale)
+        if not texture:
+            raise OSError(sdl2.SDL_GetError().decode("utf-8", errors="replace"))
+        image = pico.Image(texture)
+        previous = sdl2.SDL_GetRenderTarget(renderer)
+        if sdl2.SDL_SetRenderTarget(renderer, texture) != 0:
+            raise OSError(sdl2.SDL_GetError().decode("utf-8", errors="replace"))
+        try:
+            for y, row in enumerate(reversed(world.tiles)):
+                for x, tile in enumerate(row):
+                    tile_image = self._wall_texture if tile == "#" else self._floor_texture
+                    rect = sdl2.SDL_Rect(x * scale, y * scale, scale, scale)
+                    sdl2.SDL_RenderCopy(renderer, tile_image.texture, None, rect)
+        finally:
+            sdl2.SDL_SetRenderTarget(renderer, previous)
+        self._map_texture = image
+        self._map_tiles = world.tiles
 
     @staticmethod
     def _draw_frame(sheet: pico.Image, frame: int, x: float, y: float, angle: float, size: int) -> None:
@@ -177,7 +209,7 @@ class FirstPersonRenderer:
 
             left = column * WIDTH // COLUMN_COUNT
             right = (column + 1) * WIDTH // COLUMN_COUNT
-            SDL_SetTextureColorMod(wall.texture, shade, shade, shade)
+            sdl2.SDL_SetTextureColorMod(wall.texture, shade, shade, shade)
             wall.clip_draw(tex_x, 0, 1, wall.h, (left + right) / 2,
                            horizon, right - left, wall_height)
 

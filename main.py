@@ -49,11 +49,9 @@ class Game:
         if not length:
             return
 
-        dx, dy = sideways, forward
-        if self.first_person:
-            facing_x, facing_y = cos(player.angle), sin(player.angle)
-            dx = facing_x * forward + facing_y * sideways
-            dy = facing_y * forward - facing_x * sideways
+        facing_x, facing_y = cos(player.angle), sin(player.angle)
+        dx = facing_x * forward + facing_y * sideways
+        dy = facing_y * forward - facing_x * sideways
         distance = MOVE_SPEED * dt / length
         self.world.move_player(dx * distance, dy * distance)
 
