@@ -21,6 +21,8 @@ COLUMN_COUNT = 160
 FOV = pi / 3
 NEAR = 0.01
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
+TEXTURE_DIR = ASSET_DIR / "textures"
+FLOOR_TEXTURE_PATH = TEXTURE_DIR / "floor_stone_flags.png"
 TARGET_SPRITE = "enemy_wehrmacht_infantry_pistol"
 TARGET_HIT_FRAME = 8
 FIRST_PERSON_TARGET_CELL = 96
@@ -72,6 +74,8 @@ class AmmoHud:
 
 class TopDownRenderer:
     def __init__(self) -> None:
+        self._wall_texture = pico.load_image(str(TEXTURE_DIR / "wall_stone_top_down.png"))
+        self._floor_texture = pico.load_image(str(FLOOR_TEXTURE_PATH))
         self._player_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down.png"))
         self._upper_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_upper.png"))
         self._walk_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_walk.png"))
@@ -96,8 +100,8 @@ class TopDownRenderer:
         for y, row in enumerate(world.tiles):
             for x, tile in enumerate(row):
                 sx, sy = left + x * scale, bottom + y * scale
-                color = WALL if tile == "#" else FLOOR
-                fill_rect(sx, sy, sx + scale - 2, sy + scale - 2, color)
+                texture = self._wall_texture if tile == "#" else self._floor_texture
+                texture.draw_to_origin(sx, sy, scale, scale)
 
         for target in world.targets:
             x, y = left + target.x * scale, bottom + target.y * scale
