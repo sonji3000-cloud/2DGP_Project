@@ -23,6 +23,8 @@ COLUMN_COUNT = 160
 FOV = pi / 3
 NEAR = 0.01
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
+TARGET_SPRITE = "enemy_wehrmacht_infantry_pistol"
+TARGET_HIT_FRAME = 8
 PISTOL_SHEET_PATH = ASSET_DIR / "luger_p08_first_person.png"
 PISTOL_CELL_WIDTH = 160
 PISTOL_CELL_HEIGHT = 128
@@ -80,6 +82,7 @@ class TopDownRenderer:
         self._player_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down.png"))
         self._upper_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_upper.png"))
         self._walk_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_walk.png"))
+        self._target_sheet = pico.load_image(str(ASSET_DIR / f"{TARGET_SPRITE}_top_down.png"))
         self._walk_distance = 0.0
         self._walk_angle = 0.0
         self._walking = False
@@ -105,8 +108,8 @@ class TopDownRenderer:
 
         for target in world.targets:
             x, y = left + target.x * scale, bottom + target.y * scale
-            size = TARGET_RADIUS * scale
-            fill_rect(x - size, y - size, x + size, y + size, target_color(target))
+            frame = TARGET_HIT_FRAME if target.hit_flash > 0 else 0
+            self._draw_frame(self._target_sheet, frame, x, y, pi, scale)
 
         for bullet in world.bullets:
             x, y = left + bullet.x * scale, bottom + bullet.y * scale
