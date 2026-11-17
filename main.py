@@ -37,7 +37,6 @@ class Game:
         self.pistol = Pistol()
         self.held: set[int] = set()
         self.first_person = False
-        self.top_down_renderer = TopDownRenderer()
 
     def update_player(self, dt: float) -> None:
         player = self.world.player
@@ -60,8 +59,10 @@ class Game:
 
     def run(self) -> None:
         pico.open_canvas(WIDTH, HEIGHT, sync=True)
+        top_down_renderer = None
         first_person_renderer = None
         try:
+            top_down_renderer = TopDownRenderer()
             first_person_renderer = FirstPersonRenderer()
             last_time = perf_counter()
             while True:
@@ -77,18 +78,20 @@ class Game:
                 player = self.world.player
                 previous_x, previous_y = player.x, player.y
                 self.update_player(dt)
-                walk_distance = hypot(player.x - previous_x, player.y - previous_y)
-                first_person_renderer.update_walk(walk_distance if self.first_person else 0.0, dt)
+                dx, dy = player.x - previous_x, player.y - previous_y
+                top_down_renderer.update_walk(dx, dy)
+                first_person_renderer.update_walk(hypot(dx, dy) if self.first_person else 0.0, dt)
                 self.pistol.update(self.world, pico.SDLK_SPACE in pressed, dt)
 
                 pico.clear_canvas()
                 if self.first_person:
                     first_person_renderer.draw(self.world)
                 else:
-                    self.top_down_renderer.draw(self.world)
+                    top_down_renderer.draw(self.world)
                 pico.update_canvas()
         finally:
-            # Release the sprite texture before Pico2d destroys its renderer.
+            # Release sprite textures before Pico2d destroys its renderer.
+            top_down_renderer = None
             first_person_renderer = None
             pico.close_canvas()
 

@@ -1,11 +1,11 @@
 """Pico2d drawing code for the prototype."""
 
-from math import ceil, cos, exp, floor, pi, sin, tan, tau
+from math import atan2, ceil, cos, exp, floor, hypot, pi, sin, tan, tau
 from pathlib import Path
 
 import pico2d as pico
 
-from world import PLAYER_RADIUS, TARGET_RADIUS, Target, World
+from world import TARGET_RADIUS, Target, World
 from raycast import cast_wall
 
 
@@ -13,7 +13,6 @@ WIDTH, HEIGHT = 960, 576
 BACKGROUND = (23, 25, 26)
 FLOOR = (51, 47, 40)
 WALL = (117, 109, 97)
-PLAYER = (94, 207, 185)
 TARGET = (224, 116, 86)
 TARGET_HIT = (161, 114, 78)
 SHOT = (255, 217, 127)
@@ -22,18 +21,22 @@ SIGHT = (232, 225, 209)
 COLUMN_COUNT = 160
 FOV = pi / 3
 NEAR = 0.01
-PISTOL_SHEET_PATH = Path(__file__).resolve().parent / "assets" / "luger_p08_first_person.png"
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+PISTOL_SHEET_PATH = ASSET_DIR / "luger_p08_first_person.png"
 PISTOL_CELL_WIDTH = 160
 PISTOL_CELL_HEIGHT = 128
 PISTOL_SCALE = 2
 # Front and rear sight positions in the idle cell, measured from its top left.
 PISTOL_FRONT_SIGHT = (52, 45)
 PISTOL_REAR_SIGHT = (68, 64)
-PISTOL_FIRE_DURATIONS = (0.040, 0.050, 0.045, 0.045)
+PISTOL_FIRE_FRAME_ENDS = (0.040, 0.090, 0.135, 0.180)
 PISTOL_BOB_CYCLE_DISTANCE = 2.4  # World units per sway cycle.
 PISTOL_BOB_HORIZONTAL = 3  # Pixels.
 PISTOL_BOB_VERTICAL = 4  # Pixels.
 PISTOL_BOB_RESPONSE = 14.0  # Per second.
+TOP_DOWN_CELL_SIZE = 64
+TOP_DOWN_WALK_FRAMES = 6
+TOP_DOWN_WALK_CYCLE_DISTANCE = 2.1  # World units per walk cycle.
 
 
 def fill_rect(x1, y1, x2, y2, color):
@@ -46,7 +49,35 @@ def target_color(target: Target) -> tuple[int, int, int]:
     return TARGET_HIT if target.hits else TARGET
 
 
+def pistol_frame(time_since_shot: float) -> int:
+    for frame, end in enumerate(PISTOL_FIRE_FRAME_ENDS, start=1):
+        if time_since_shot < end:
+            return frame
+    return 0
+
+
+def sheet_cell(sheet: pico.Image, frame: int, width: int, height: int) -> tuple[int, int]:
+    # Sprite sheets start at the top left, while Pico2d clips from the bottom.
+    row, column = divmod(frame, sheet.w // width)
+    return column * width, sheet.h - (row + 1) * height
+
+
 class TopDownRenderer:
+    def __init__(self) -> None:
+        self._player_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down.png"))
+        self._upper_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_upper.png"))
+        self._walk_sheet = pico.load_image(str(ASSET_DIR / "luger_p08_top_down_walk.png"))
+        self._walk_distance = 0.0
+        self._walk_angle = 0.0
+        self._walking = False
+
+    def update_walk(self, dx: float, dy: float) -> None:
+        distance = hypot(dx, dy)
+        self._walking = distance > 1e-6
+        if self._walking:
+            self._walk_distance = (self._walk_distance + distance) % TOP_DOWN_WALK_CYCLE_DISTANCE
+            self._walk_angle = atan2(dy, dx)
+
     def draw(self, world: World) -> None:
         fill_rect(0, 0, WIDTH - 1, HEIGHT - 1, BACKGROUND)
         scale = min((WIDTH - 80) // world.width, (HEIGHT - 80) // world.height)
@@ -70,11 +101,19 @@ class TopDownRenderer:
 
         player = world.player
         x, y = left + player.x * scale, bottom + player.y * scale
-        size = PLAYER_RADIUS * scale
-        fill_rect(x - size, y - size, x + size, y + size, PLAYER)
-        aim_length = scale * 0.65
-        pico.draw_line(x, y, x + cos(player.angle) * aim_length,
-                       y + sin(player.angle) * aim_length, *PLAYER)
+        frame = pistol_frame(player.time_since_shot)
+        if self._walking:
+            walk_frame = int(TOP_DOWN_WALK_FRAMES * self._walk_distance / TOP_DOWN_WALK_CYCLE_DISTANCE)
+            self._draw_frame(self._walk_sheet, walk_frame, x, y, self._walk_angle, scale)
+            self._draw_frame(self._upper_sheet, frame, x, y, player.angle, scale)
+        else:
+            self._draw_frame(self._player_sheet, frame, x, y, player.angle, scale)
+
+    @staticmethod
+    def _draw_frame(sheet: pico.Image, frame: int, x: float, y: float, angle: float, size: int) -> None:
+        cell = TOP_DOWN_CELL_SIZE
+        left, bottom = sheet_cell(sheet, frame, cell, cell)
+        sheet.clip_composite_draw(left, bottom, cell, cell, angle, '', x, y, size, size)
 
 
 class FirstPersonRenderer:
@@ -152,17 +191,8 @@ class FirstPersonRenderer:
 
     def _draw_pistol(self, time_since_shot: float) -> None:
         center_x, center_y = WIDTH // 2, HEIGHT // 2
-        frame = 0
-        for index, duration in enumerate(PISTOL_FIRE_DURATIONS, start=1):
-            if time_since_shot < duration:
-                frame = index
-                break
-            time_since_shot -= duration
-
-        # The sheet is ordered from the top left, while Pico2d clips from the bottom.
-        row, column = divmod(frame, self.pistol_sheet.w // PISTOL_CELL_WIDTH)
-        left = column * PISTOL_CELL_WIDTH
-        bottom = self.pistol_sheet.h - (row + 1) * PISTOL_CELL_HEIGHT
+        frame = pistol_frame(time_since_shot)
+        left, bottom = sheet_cell(self.pistol_sheet, frame, PISTOL_CELL_WIDTH, PISTOL_CELL_HEIGHT)
         draw_width = PISTOL_CELL_WIDTH * PISTOL_SCALE
         draw_height = PISTOL_CELL_HEIGHT * PISTOL_SCALE
         front_x, front_y = PISTOL_FRONT_SIGHT
