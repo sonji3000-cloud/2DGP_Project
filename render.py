@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pico2d as pico
 
+from combat import Pistol
 from world import TARGET_RADIUS, Target, World
 from raycast import cast_wall
 
@@ -52,6 +53,26 @@ def sheet_cell(sheet: pico.Image, frame: int, width: int, height: int) -> tuple[
     # Sprite sheets start at the top left, while Pico2d clips from the bottom.
     row, column = divmod(frame, sheet.w // width)
     return column * width, sheet.h - (row + 1) * height
+
+
+class AmmoHud:
+    def __init__(self) -> None:
+        font_path = Path(pico.__file__).resolve().parent / "data" / "ConsolaMalgun.ttf"
+        self._font = pico.load_font(str(font_path), 20)
+
+    def draw(self, pistol: Pistol) -> None:
+        fill_rect(12, 12, 324, 46, BACKGROUND)
+        label = f"AMMO {pistol.rounds:02d} / {pistol.reserve:02d}"
+        color = SIGHT
+        if pistol.reloading:
+            label += "  RELOADING"
+            color = SHOT
+        elif pistol.reserve and pistol.rounds < pistol.MAGAZINE_SIZE:
+            label += "  [R] RELOAD"
+        elif pistol.rounds == 0:
+            label += "  NO AMMO"
+            color = SHOT
+        self._font.draw(24, 29, label, color)
 
 
 class TopDownRenderer:

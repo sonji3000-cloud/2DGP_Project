@@ -6,7 +6,7 @@ from time import perf_counter
 import pico2d as pico
 
 from combat import Pistol
-from render import HEIGHT, WIDTH, FirstPersonRenderer, TopDownRenderer
+from render import HEIGHT, WIDTH, AmmoHud, FirstPersonRenderer, TopDownRenderer
 from world import World
 
 
@@ -61,9 +61,11 @@ class Game:
         pico.open_canvas(WIDTH, HEIGHT, sync=True)
         top_down_renderer = None
         first_person_renderer = None
+        ammo_hud = None
         try:
             top_down_renderer = TopDownRenderer()
             first_person_renderer = FirstPersonRenderer()
+            ammo_hud = AmmoHud()
             last_time = perf_counter()
             while True:
                 running, pressed = read_input(self.held)
@@ -90,11 +92,13 @@ class Game:
                     first_person_renderer.draw(self.world, frame)
                 else:
                     top_down_renderer.draw(self.world, frame)
+                ammo_hud.draw(self.pistol)
                 pico.update_canvas()
         finally:
             # Release sprite textures before Pico2d destroys its renderer.
             top_down_renderer = None
             first_person_renderer = None
+            ammo_hud = None
             pico.close_canvas()
 
 
