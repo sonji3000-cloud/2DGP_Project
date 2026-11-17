@@ -6,7 +6,7 @@ from pathlib import Path
 import pico2d as pico
 
 from combat import Pistol
-from world import TARGET_RADIUS, Target, World
+from world import World
 from raycast import cast_wall
 
 
@@ -14,8 +14,6 @@ WIDTH, HEIGHT = 960, 576
 BACKGROUND = (23, 25, 26)
 FLOOR = (51, 47, 40)
 WALL = (117, 109, 97)
-TARGET = (224, 116, 86)
-TARGET_HIT = (161, 114, 78)
 SHOT = (255, 217, 127)
 CEILING = (34, 36, 39)
 SIGHT = (232, 225, 209)
@@ -25,6 +23,7 @@ NEAR = 0.01
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 TARGET_SPRITE = "enemy_wehrmacht_infantry_pistol"
 TARGET_HIT_FRAME = 8
+FIRST_PERSON_TARGET_CELL = 96
 PISTOL_SHEET_PATH = ASSET_DIR / "luger_p08_first_person.png"
 PISTOL_CELL_WIDTH = 160
 PISTOL_CELL_HEIGHT = 128
@@ -43,12 +42,6 @@ TOP_DOWN_WALK_CYCLE_DISTANCE = 2.1  # World units per walk cycle.
 
 def fill_rect(x1, y1, x2, y2, color):
     pico.draw_rectangle(x1, y1, x2, y2, *color, filled=True)
-
-
-def target_color(target: Target) -> tuple[int, int, int]:
-    if target.hit_flash > 0:
-        return SHOT
-    return TARGET_HIT if target.hits else TARGET
 
 
 def sheet_cell(sheet: pico.Image, frame: int, width: int, height: int) -> tuple[int, int]:
@@ -134,6 +127,7 @@ class TopDownRenderer:
 class FirstPersonRenderer:
     def __init__(self) -> None:
         self.pistol_sheet = pico.load_image(str(PISTOL_SHEET_PATH))
+        self._target_sheet = pico.load_image(str(ASSET_DIR / f"{TARGET_SPRITE}_first_person.png"))
         self._walk_phase = 0.0
         self._walk_amount = 0.0
 
@@ -187,22 +181,34 @@ class FirstPersonRenderer:
                 projected.append((depth, side, target))
 
         column_width = WIDTH // COLUMN_COUNT
+        cell = FIRST_PERSON_TARGET_CELL
         for depth, side, target in sorted(projected, key=lambda item: item[0], reverse=True):
             center = WIDTH / 2 + focal_length * side / depth
-            half_width = focal_length * TARGET_RADIUS / depth
-            left = max(0, ceil(center - half_width))
-            right = min(WIDTH - 1, floor(center + half_width))
-            if left > right:
+            size = max(1, round(focal_length / depth))
+            sprite_left = round(center - size / 2)
+            left = max(0, sprite_left)
+            right = min(WIDTH, sprite_left + size)
+            if left >= right:
                 continue
 
-            bottom = max(0, ceil(HEIGHT / 2 - 0.5 * focal_length / depth))
-            top = min(HEIGHT - 1, floor(HEIGHT / 2 + 0.24 * focal_length / depth))
-            color = target_color(target)
-            for column in range(left // column_width, right // column_width + 1):
-                if depth < depths[column]:
-                    strip_left = max(left, column * column_width)
-                    strip_right = min(right, (column + 1) * column_width - 1)
-                    fill_rect(strip_left, bottom, strip_right, top, color)
+            frame = TARGET_HIT_FRAME if target.hit_flash > 0 else 0
+            cell_left, cell_bottom = sheet_cell(self._target_sheet, frame, cell, cell)
+            last_column = (right - 1) // column_width
+            span_left = None
+            # Draw contiguous visible columns in one clip, leaving wall-covered gaps.
+            for column in range(left // column_width, last_column + 2):
+                if column <= last_column and depth < depths[column]:
+                    if span_left is None:
+                        span_left = max(left, column * column_width)
+                elif span_left is not None:
+                    span_right = min(right, column * column_width)
+                    source_left = (span_left - sprite_left) * cell // size
+                    source_right = ceil((span_right - sprite_left) * cell / size)
+                    self._target_sheet.clip_draw(
+                        cell_left + source_left, cell_bottom, source_right - source_left, cell,
+                        (span_left + span_right) / 2, HEIGHT // 2, span_right - span_left, size,
+                    )
+                    span_left = None
 
     def _draw_pistol(self, frame: int) -> None:
         center_x, center_y = WIDTH // 2, HEIGHT // 2
