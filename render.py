@@ -42,6 +42,8 @@ PISTOL_BOB_RESPONSE = 14.0  # Per second.
 TOP_DOWN_CELL_SIZE = 64
 TOP_DOWN_WALK_FRAMES = 6
 TOP_DOWN_WALK_CYCLE_DISTANCE = 2.1  # World units per walk cycle.
+TOP_DOWN_LASER = (207, 58, 49)
+TOP_DOWN_LASER_DOT = (255, 108, 91)
 
 
 def fill_rect(x1, y1, x2, y2, color):
@@ -117,6 +119,11 @@ class TopDownRenderer:
             x, y = project(target.x, target.y)
             frame = TARGET_HIT_FRAME if target.hit_flash > 0 else 0
             self._draw_frame(self._target_sheet, frame, x, y, pi + rotation, scale)
+
+        laser_x, laser_y = project(*Pistol.aim_point(world))
+        laser_x, laser_y = round(laser_x), round(laser_y)
+        pico.draw_line(center_x, center_y, laser_x, laser_y, *TOP_DOWN_LASER)
+        fill_rect(laser_x - 1, laser_y - 1, laser_x + 1, laser_y + 1, TOP_DOWN_LASER_DOT)
 
         for bullet in world.bullets:
             x, y = project(bullet.x, bullet.y)

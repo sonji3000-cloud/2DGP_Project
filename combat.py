@@ -3,7 +3,7 @@
 from math import cos, inf, sin, sqrt
 
 from raycast import cast_wall
-from world import TARGET_RADIUS, Bullet, Target, World
+from world import TARGET_RADIUS, Bullet, Player, Target, World
 
 
 class Pistol:
@@ -64,39 +64,51 @@ class Pistol:
             return
 
         if fire_pressed and self.cooldown == 0.0 and self.rounds > 0:
-            player = world.player
-            world.bullets.append(Bullet(player.x, player.y, cos(player.angle),
-                                        sin(player.angle), self.BULLET_RANGE))
+            world.bullets.append(self._make_bullet(world.player))
             self.rounds -= 1
             self.cooldown = self.FIRE_INTERVAL
             self._time_since_shot = 0.0
 
+    @classmethod
+    def _make_bullet(cls, player: Player) -> Bullet:
+        return Bullet(player.x, player.y, cos(player.angle), sin(player.angle), cls.BULLET_RANGE)
+
+    @classmethod
+    def aim_point(cls, world: World) -> tuple[float, float]:
+        ray = cls._make_bullet(world.player)
+        impact = cls._first_impact(world, ray, ray.range_left)
+        distance = impact[0] if impact is not None else ray.range_left
+        return ray.x + ray.dx * distance, ray.y + ray.dy * distance
+
     def _advance(self, world: World, bullet: Bullet, dt: float) -> bool:
         distance = min(self.BULLET_SPEED * dt, bullet.range_left)
-        wall = cast_wall(world, bullet.x, bullet.y, bullet.dx, bullet.dy, distance)
-
-        first_target = None
-        first_distance = float("inf")
-        for target in world.targets:
-            impact = self._target_distance(bullet, target)
-            if impact is None or impact > distance or impact >= first_distance:
-                continue
-            if wall is not None and impact >= wall.distance:
-                continue
-            first_target = target
-            first_distance = impact
-
-        if first_target is not None:
-            first_target.hits += 1
-            first_target.hit_flash = self.TARGET_FLASH_TIME
-            return False
-        if wall is not None:
+        impact = self._first_impact(world, bullet, distance)
+        if impact is not None:
+            _, target = impact
+            if target is not None:
+                target.hits += 1
+                target.hit_flash = self.TARGET_FLASH_TIME
             return False
 
         bullet.x += bullet.dx * distance
         bullet.y += bullet.dy * distance
         bullet.range_left -= distance
         return bullet.range_left > 0.0
+
+    @classmethod
+    def _first_impact(cls, world: World, bullet: Bullet, distance: float) -> tuple[float, Target | None] | None:
+        wall = cast_wall(world, bullet.x, bullet.y, bullet.dx, bullet.dy, distance)
+        first_distance = wall.distance if wall is not None else inf
+        first_target = None
+        for target in world.targets:
+            impact = cls._target_distance(bullet, target)
+            if impact is not None and impact <= distance and impact < first_distance:
+                first_target = target
+                first_distance = impact
+
+        if first_target is None and wall is None:
+            return None
+        return first_distance, first_target
 
     @staticmethod
     def _target_distance(bullet: Bullet, target: Target) -> float | None:
