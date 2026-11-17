@@ -4,21 +4,22 @@ from math import atan2, ceil, cos, exp, floor, hypot, pi, sin, tan, tau
 from pathlib import Path
 
 import pico2d as pico
+from sdl2 import SDL_SetTextureColorMod
 
 from combat import Pistol
+from floor_render import FloorRenderer
 from world import World
 from raycast import cast_wall
 
 
 WIDTH, HEIGHT = 960, 576
 BACKGROUND = (23, 25, 26)
-FLOOR = (51, 47, 40)
-WALL = (117, 109, 97)
 SHOT = (255, 217, 127)
 CEILING = (34, 36, 39)
 SIGHT = (232, 225, 209)
 COLUMN_COUNT = 160
 FOV = pi / 3
+CAMERA_PLANE = tan(FOV / 2)
 NEAR = 0.01
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 TEXTURE_DIR = ASSET_DIR / "textures"
@@ -130,6 +131,8 @@ class TopDownRenderer:
 
 class FirstPersonRenderer:
     def __init__(self) -> None:
+        self._wall_texture = pico.load_image(str(TEXTURE_DIR / "wall_stone_blocks.png"))
+        self._floor = FloorRenderer(FLOOR_TEXTURE_PATH, WIDTH, HEIGHT, CAMERA_PLANE)
         self.pistol_sheet = pico.load_image(str(PISTOL_SHEET_PATH))
         self._target_sheet = pico.load_image(str(ASSET_DIR / f"{TARGET_SPRITE}_first_person.png"))
         self._walk_phase = 0.0
@@ -143,16 +146,15 @@ class FirstPersonRenderer:
 
     def draw(self, world: World, pistol_frame: int) -> None:
         horizon = HEIGHT // 2
-        fill_rect(0, 0, WIDTH - 1, horizon - 1, FLOOR)
         fill_rect(0, horizon, WIDTH - 1, HEIGHT - 1, CEILING)
 
         player = world.player
         facing_x, facing_y = cos(player.angle), sin(player.angle)
-        plane = tan(FOV / 2)
-        focal_length = WIDTH / (2 * plane)
+        self._floor.draw(player.x, player.y, facing_x, facing_y)
+        focal_length = WIDTH / (2 * CAMERA_PLANE)
         depths = []
         for column in range(COLUMN_COUNT):
-            offset = (2 * (column + 0.5) / COLUMN_COUNT - 1) * plane
+            offset = (2 * (column + 0.5) / COLUMN_COUNT - 1) * CAMERA_PLANE
             ray_x = facing_x + facing_y * offset
             ray_y = facing_y - facing_x * offset
             # The ray is unnormalized, so the hit parameter is forward depth.
@@ -161,15 +163,23 @@ class FirstPersonRenderer:
                 depths.append(float("inf"))
                 continue
             depths.append(hit.distance)
-            half_height = focal_length / (2 * max(hit.distance, NEAR))
+            wall_height = max(1, round(focal_length / max(hit.distance, NEAR)))
             brightness = max(0.26, 1.0 / (1 + hit.distance * 0.15))
             if not hit.vertical:
                 brightness *= 0.76
-            color = tuple(int(channel * brightness) for channel in WALL)
+            shade = round(255 * brightness)
+            along_wall = (player.y + ray_y * hit.distance if hit.vertical
+                          else player.x + ray_x * hit.distance)
+            wall = self._wall_texture
+            tex_x = int((along_wall - floor(along_wall)) * wall.w)
+            if (hit.vertical and ray_x > 0) or (not hit.vertical and ray_y < 0):
+                tex_x = wall.w - 1 - tex_x
+
             left = column * WIDTH // COLUMN_COUNT
-            right = (column + 1) * WIDTH // COLUMN_COUNT - 1
-            fill_rect(left, max(0, ceil(horizon - half_height)),
-                      right, min(HEIGHT - 1, floor(horizon + half_height)), color)
+            right = (column + 1) * WIDTH // COLUMN_COUNT
+            SDL_SetTextureColorMod(wall.texture, shade, shade, shade)
+            wall.clip_draw(tex_x, 0, 1, wall.h, (left + right) / 2,
+                           horizon, right - left, wall_height)
 
         self._draw_targets(world, facing_x, facing_y, focal_length, depths)
         self._draw_pistol(pistol_frame)
